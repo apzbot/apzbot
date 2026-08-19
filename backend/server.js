@@ -321,6 +321,10 @@ async function getOrCreateUser(tgUser) {
 
 function requireTelegram(req, res) {
   const initData = req.headers['x-telegram-init'];
+  console.log(`[Telegram Auth] Path: ${req.path}, InitData length: ${initData ? initData.length : 0}, Has initData: ${!!initData}`);
+  if (initData) {
+    console.log(`[Telegram Auth] Preview: ${initData.substring(0, 60)}...`);
+  }
 
   // DEV_MODE: skip verification, return a mock user
   if (DEV_MODE) {
@@ -335,9 +339,11 @@ function requireTelegram(req, res) {
   }
 
   if (!verifyInitData(initData)) {
+    console.log(`[Telegram Auth] ❌ Verification failed for initData!`);
     res.status(401).json({ ok: false, error: 'Unauthorized' });
     return null;
   }
+  console.log(`[Telegram Auth] ✅ Verification successful!`);
   const urlParams = new URLSearchParams(initData);
   const userRaw = urlParams.get('user');
   if (!userRaw) {
