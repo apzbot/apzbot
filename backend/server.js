@@ -1346,24 +1346,27 @@ bot.onText(/\/start/, async (msg) => {
     }
   } catch (e) { console.error('Menu update error:', e.message); }
 
-  bot.sendMessage(
-    chatId,
-    'Вітаю! Для відкриття додатка скористайтеся фіксованою кнопкою внизу екрана "🚀 ВІДКРИТИ ПРАЛЬНЮ" або синьою кнопкою зліва від поля введення повідомлень:',
-    {
-      reply_markup: {
-        keyboard: [
-          [
-            {
-              text: '🚀 ВІДКРИТИ ПРАЛЬНЮ',
-              web_app: { url: WEBAPP_URL }
-            }
+  // Send a message with remove_keyboard to clear any old persistent custom keyboards
+  bot.sendMessage(chatId, 'Оновлюємо меню...', {
+    reply_markup: { remove_keyboard: true }
+  }).then(() => {
+    bot.sendMessage(
+      chatId,
+      'Вітаю! Для відкриття додатка скористайтеся кнопкою під цим повідомленням або синьою кнопкою зліва від поля введення повідомлень:',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🚀 ВІДКРИТИ ПРАЛЬНЮ',
+                web_app: { url: WEBAPP_URL }
+              }
+            ]
           ]
-        ],
-        resize_keyboard: true,
-        is_persistent: true
+        }
       }
-    }
-  );
+    );
+  });
 });
 
 // Update menu globally on startup
