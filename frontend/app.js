@@ -340,7 +340,7 @@ async function checkAppMaintenance() {
       if (savedPass) {
         const date = elDate.value;
         const testRes = await apiGet(`/api/state?date=${encodeURIComponent(date)}`);
-        if (testRes && testRes.ok) {
+        if (testRes && (testRes.ok || (testRes.error === 'Unauthorized' && !tg?.initData))) {
           maintOverlay.classList.add('hidden');
           return false;
         }
@@ -584,7 +584,7 @@ function bindEvents() {
         const testRes = await apiGet(`/api/state?date=${encodeURIComponent(date)}`);
         hideLoading();
         
-        if (testRes && testRes.ok) {
+        if (testRes && (testRes.ok || (testRes.error === 'Unauthorized' && !tg?.initData))) {
           document.getElementById('app-maintenance').classList.add('hidden');
           loadState(true);
         } else {
