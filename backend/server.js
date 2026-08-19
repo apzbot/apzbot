@@ -136,6 +136,11 @@ if (usePostgres) {
     pgPool.query(pgSchema)
       .then(() => {
         console.log('PostgreSQL: Schema initialized');
+        // Ensure monthly_limit column exists in PostgreSQL
+        return pgPool.query('ALTER TABLE Users ADD COLUMN IF NOT EXISTS monthly_limit INTEGER DEFAULT NULL');
+      })
+      .then(() => {
+        console.log('PostgreSQL: Users table migrated (monthly_limit added if missing)');
         const machines = [
           { id: 1, name: 'Пральна 1' },
           { id: 2, name: 'Пральна 2' },
@@ -167,15 +172,24 @@ if (usePostgres) {
           if (err) {
             console.error('SQLite: Schema init error:', err.message);
           } else {
-            const machines = [
-              { id: 1, name: 'Пральна 1' },
-              { id: 2, name: 'Пральна 2' },
-              { id: 3, name: 'Пральна 3' }
-            ];
-            machines.forEach(m => {
-              db.run('INSERT OR IGNORE INTO Machines (id, name, status) VALUES (?, ?, ?)', [m.id, m.name, 'active']);
+            // Ensure monthly_limit column exists in SQLite
+            db.run('ALTER TABLE Users ADD COLUMN monthly_limit INTEGER DEFAULT NULL', (alterErr) => {
+              if (alterErr && !alterErr.message.includes('duplicate column name') && !alterErr.message.includes('already exists')) {
+                console.error('SQLite: Migration error (monthly_limit):', alterErr.message);
+              } else if (!alterErr) {
+                console.log('SQLite: Users table migrated (monthly_limit added)');
+              }
+
+              const machines = [
+                { id: 1, name: 'Пральна 1' },
+                { id: 2, name: 'Пральна 2' },
+                { id: 3, name: 'Пральна 3' }
+              ];
+              machines.forEach(m => {
+                db.run('INSERT OR IGNORE INTO Machines (id, name, status) VALUES (?, ?, ?)', [m.id, m.name, 'active']);
+              });
+              console.log('SQLite: Machines synchronized (3 machines active).');
             });
-            console.log('SQLite: Machines synchronized (3 machines active).');
           }
         });
       } catch (fsErr) {
@@ -389,7 +403,7 @@ app.get('/api/state', async (req, res) => {
 
     const settingsLimit = await dbGet("SELECT value FROM Settings WHERE key = 'monthly_limit'");
     const globalLimit = settingsLimit ? parseInt(settingsLimit.value) : 12;
-    const userLimit = user.monthly_limit !== null ? user.monthly_limit : globalLimit;
+    const userLimit = user.monthly_limit ?? globalLimit;
 
     const currentMonth = date.substring(0, 7); // YYYY-MM
     const monthlyCount = await dbGet(
@@ -546,9 +560,9 @@ app.post('/api/book', async (req, res) => {
 
     const settingsLimit = await dbGet("SELECT value FROM Settings WHERE key = 'monthly_limit'");
     const globalLimit = settingsLimit ? parseInt(settingsLimit.value) : 12;
-    const userLimit = user.monthly_limit !== null ? user.monthly_limit : globalLimit;
+    const userLimit = user.monthly_limit ?? globalLimit;
 
-    if (monthlyCount.count >= userLimit) {
+    if (userLimit >= 0 && monthlyCount.count >= userLimit) {
       return res.json({ ok: false, error: `Ви вичерпали ліміт бронювань на цей місяць (макс. ${userLimit})` });
     }
 
@@ -1071,7 +1085,7 @@ setTimeout(async () => {
 app.get('/api/admin/users', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const users = await dbAll('SELECT id, username, full_name, role, is_privileged, balance, is_registered FROM Users ORDER BY id DESC');
+    const users = await dbAll('SELECT id, username, full_name, role, is_privileged, balance, is_registered, monthly_limit FROM Users ORDER BY id DESC');
     res.json({ ok: true, users });
   } catch (err) {
     res.json({ ok: false, error: err.message });

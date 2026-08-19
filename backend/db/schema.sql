@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS Users (
   role TEXT DEFAULT 'user',
   is_privileged INTEGER DEFAULT 0,
   balance INTEGER DEFAULT 0,
-  is_registered INTEGER DEFAULT 0
+  is_registered INTEGER DEFAULT 0,
+  monthly_limit INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS Machines (

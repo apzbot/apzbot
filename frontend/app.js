@@ -215,7 +215,9 @@ async function loadState(skipMaintenanceCheck = false) {
     setUserUI(currentUser);
     
     if (elMonthlyUsage) elMonthlyUsage.textContent = data.monthly_usage;
-    if (elMonthlyLimit) elMonthlyLimit.textContent = data.monthly_limit;
+    if (elMonthlyLimit) {
+      elMonthlyLimit.textContent = data.monthly_limit < 0 ? '∞' : data.monthly_limit;
+    }
 
     if (!currentUser.is_registered) {
       elRegModal.classList.remove('hidden');
