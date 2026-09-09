@@ -266,6 +266,13 @@ input[type="date"]:focus {
   cursor: not-allowed;
   font-weight: 600;
 }
+.slot.inactive {
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
 
 /* Card & Balances */
 .card-header {

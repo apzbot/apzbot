@@ -400,6 +400,7 @@ app.get('/api/state', async (req, res) => {
 
     const user = await getOrCreateUser(tgUser);
     const bookings = await dbAll('SELECT * FROM Bookings WHERE date = ? AND status = ?', [date, 'active']);
+    const machines = await dbAll('SELECT * FROM Machines ORDER BY id ASC');
 
     const settingsLimit = await dbGet("SELECT value FROM Settings WHERE key = 'monthly_limit'");
     const globalLimit = settingsLimit ? parseInt(settingsLimit.value) : 12;
@@ -420,6 +421,7 @@ app.get('/api/state', async (req, res) => {
       user: { id: user.id, username: user.username, full_name: user.full_name, is_registered: !!user.is_registered },
       balance: user.balance,
       is_privileged: !!user.is_privileged,
+      machines,
       bookings,
       monthly_usage: monthlyCount.count,
       monthly_limit: userLimit,
@@ -516,6 +518,14 @@ app.post('/api/book', async (req, res) => {
     }
     if (!TIME_SLOTS.includes(time_slot)) {
       return res.json({ ok: false, error: 'Invalid time slot' });
+    }
+
+    const machine = await dbGet('SELECT * FROM Machines WHERE id = ?', [machine_id]);
+    if (!machine) {
+      return res.json({ ok: false, error: 'Пральну машину не знайдено' });
+    }
+    if (machine.status !== 'active') {
+      return res.json({ ok: false, error: 'Пральна машина деактивована або перебуває на обслуговуванні' });
     }
 
     const today = getLocalDateString();
@@ -1262,6 +1272,57 @@ app.post('/api/admin/settings/update', async (req, res) => {
   }
 });
 
+app.get('/api/admin/machines', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const machines = await dbAll('SELECT * FROM Machines ORDER BY id ASC');
+    res.json({ ok: true, machines });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/machines/status', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const { machineId, status } = req.body || {};
+    if (!machineId || !['active', 'inactive'].includes(status)) {
+      return res.json({ ok: false, error: 'Некоректний machineId або статус' });
+    }
+
+    const targetMachine = await dbGet('SELECT * FROM Machines WHERE id = ?', [machineId]);
+    if (!targetMachine) {
+      return res.json({ ok: false, error: 'Пральну машину не знайдено' });
+    }
+
+    await dbRun('UPDATE Machines SET status = ? WHERE id = ?', [status, machineId]);
+
+    let cancelledCount = 0;
+    if (status === 'inactive') {
+      const today = getLocalDateString();
+      const activeBookings = await dbAll(
+        "SELECT * FROM Bookings WHERE machine_id = ? AND status = 'active' AND date >= ?",
+        [machineId, today]
+      );
+
+      cancelledCount = activeBookings.length;
+
+      for (const b of activeBookings) {
+        await dbRun("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", [b.id]);
+        await dbRun("UPDATE Users SET balance = balance + 1 WHERE id = ?", [b.user_id]);
+        const msg = `⚠️ Увага! Пралку №${machineId} тимчасово деактивовано (на обслуговуванні).\n❌ Ваше бронювання скасовано:\n🧺 Пралка: №${machineId}\n📅 Дата: ${b.date}\n🕒 Час: ${b.time_slot}\n🔄 1 прання повернуто на ваш баланс.`;
+        bot.sendMessage(b.user_id, msg).catch(e => console.error('Bot notify error:', e.message));
+      }
+    }
+
+    io.emit('update');
+    res.json({ ok: true, cancelledCount });
+  } catch (err) {
+    console.error(err);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 
 
 app.get('/api/admin/privilege_requests', async (req, res) => {
@@ -1451,6 +1512,51 @@ bot.onText(/\/add_balance\s+@?(\w+)\s+(\d+)/, async (msg, match) => {
     bot.sendMessage(user.id, `Ваш баланс поповнено на ${amount}`);
   } catch (err) {
     console.error(err);
+  }
+});
+
+bot.onText(/\/deactivate_machine\s+(\d+)/, async (msg, match) => {
+  try {
+    if (!ADMIN_CHAT_ID || String(msg.chat.id) !== String(ADMIN_CHAT_ID)) return;
+    const machineId = Number(match[1]);
+    const machine = await dbGet('SELECT * FROM Machines WHERE id = ?', [machineId]);
+    if (!machine) return bot.sendMessage(msg.chat.id, 'Пральну машину не знайдено');
+
+    await dbRun('UPDATE Machines SET status = ? WHERE id = ?', ['inactive', machineId]);
+    const today = getLocalDateString();
+    const activeBookings = await dbAll(
+      "SELECT * FROM Bookings WHERE machine_id = ? AND status = 'active' AND date >= ?",
+      [machineId, today]
+    );
+
+    for (const b of activeBookings) {
+      await dbRun("UPDATE Bookings SET status = 'cancelled' WHERE id = ?", [b.id]);
+      await dbRun("UPDATE Users SET balance = balance + 1 WHERE id = ?", [b.user_id]);
+      const notifyMsg = `⚠️ Увага! Пралку №${machineId} тимчасово деактивовано (на обслуговуванні).\n❌ Ваше бронювання скасовано:\n🧺 Пралка: №${machineId}\n📅 Дата: ${b.date}\n🕒 Час: ${b.time_slot}\n🔄 1 прання повернуто на ваш баланс.`;
+      bot.sendMessage(b.user_id, notifyMsg).catch(e => console.error('Bot notify error:', e.message));
+    }
+
+    io.emit('update');
+    bot.sendMessage(msg.chat.id, `🛑 Пралку №${machineId} деактивовано. Скасовано бронювань та повернуто прань: ${activeBookings.length}`);
+  } catch (err) {
+    console.error(err);
+    bot.sendMessage(msg.chat.id, `Помилка: ${err.message}`);
+  }
+});
+
+bot.onText(/\/activate_machine\s+(\d+)/, async (msg, match) => {
+  try {
+    if (!ADMIN_CHAT_ID || String(msg.chat.id) !== String(ADMIN_CHAT_ID)) return;
+    const machineId = Number(match[1]);
+    const machine = await dbGet('SELECT * FROM Machines WHERE id = ?', [machineId]);
+    if (!machine) return bot.sendMessage(msg.chat.id, 'Пральну машину не знайдено');
+
+    await dbRun('UPDATE Machines SET status = ? WHERE id = ?', ['active', machineId]);
+    io.emit('update');
+    bot.sendMessage(msg.chat.id, `✅ Пралку №${machineId} активовано.`);
+  } catch (err) {
+    console.error(err);
+    bot.sendMessage(msg.chat.id, `Помилка: ${err.message}`);
   }
 });
 

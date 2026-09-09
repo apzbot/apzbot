@@ -119,7 +119,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // LOAD ALL DATA
 // ─────────────────────────────────────────────
 async function loadAll() {
-  await Promise.all([loadUsers(), loadBookings(), loadPayments(), loadPrivileges(), loadSettings()]);
+  await Promise.all([loadUsers(), loadBookings(), loadPayments(), loadPrivileges(), loadSettings(), loadMachines()]);
 }
 
 // ─────────────────────────────────────────────
@@ -663,6 +663,72 @@ async function loadSettings() {
     if (passInput) {
       passInput.value = maintPass;
     }
+  }
+  await loadMachines();
+}
+
+async function loadMachines() {
+  const res = await adminFetch('/api/admin/machines');
+  const el = document.getElementById('machines-list');
+  if (!el) return;
+  if (!res.ok) {
+    el.innerHTML = '<div class="empty">Не вдалося завантажити список пральних машин</div>';
+    return;
+  }
+  const machines = res.machines || [];
+  if (!machines.length) {
+    el.innerHTML = '<div class="empty">Пральних машин не знайдено</div>';
+    return;
+  }
+
+  el.innerHTML = machines.map(m => `
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:8px; background:rgba(0,0,0,0.2)">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:20px;">🧺</span>
+        <div>
+          <div style="font-weight:600; font-size:14px;">${m.name || ('Пралка №' + m.id)}</div>
+          <div style="font-size:12px; color:var(--muted)">ID: ${m.id}</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span class="status status-${m.status === 'active' ? 'success' : 'expired'}" style="padding:4px 10px; font-size:12px">
+          ${m.status === 'active' ? '● Активна' : '✕ Деактивована'}
+        </span>
+        <button class="btn btn-sm ${m.status === 'active' ? 'btn-danger' : 'btn-primary'}" onclick="toggleMachineStatus(${m.id}, '${m.status}')">
+          ${m.status === 'active' ? 'Деактивувати' : 'Активувати'}
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function toggleMachineStatus(machineId, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const actionName = newStatus === 'inactive' ? 'деактивувати' : 'активувати';
+  
+  let confirmMsg = `Ви дійсно бажаєте ${actionName} Пралку №${machineId}?`;
+  if (newStatus === 'inactive') {
+    confirmMsg += '\n\nУвага: всі її майбутні бронювання будуть скасовані, а прання повернуті користувачам у боті!';
+  }
+
+  if (!confirm(confirmMsg)) return;
+
+  const res = await adminFetch('/api/admin/machines/status', {
+    method: 'POST',
+    body: { machineId, status: newStatus }
+  });
+
+  if (res.ok) {
+    if (newStatus === 'inactive') {
+      toast(`Пралку №${machineId} деактивовано. Скасовано бронювань: ${res.cancelledCount || 0}`);
+    } else {
+      toast(`Пралку №${machineId} активовано`);
+    }
+    loadMachines();
+    loadBookings();
+    loadUsers();
+  } else {
+    toast(res.error || 'Помилка зміни статусу', '#ef4444');
   }
 }
 

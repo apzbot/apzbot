@@ -134,7 +134,7 @@ async function apiPost(path, body) {
   return res.json();
 }
 
-function renderGrid(bookings, myId) {
+function renderGrid(bookings, myId, machines = []) {
   elGrid.innerHTML = '';
 
   TIME_SLOTS.forEach((slot) => {
@@ -148,32 +148,43 @@ function renderGrid(bookings, myId) {
 
     for (let machine = 1; machine <= 3; machine++) {
       const cell = document.createElement('div');
-      cell.className = 'slot free';
       
-      const found = bookings.find(
-        (b) => b.time_slot === slot && b.machine_id === machine
-      );
+      const mObj = machines.find(m => m.id === machine);
+      const isInactive = mObj && mObj.status !== 'active';
 
-      if (found) {
-        if (found.user_id === myId) {
-          cell.className = 'slot mine';
-          cell.textContent = 'Моє (Відмінити)';
+      if (isInactive) {
+        cell.className = 'slot inactive';
+        cell.textContent = 'Не працює';
+        cell.addEventListener('click', () => {
+          showAlert(`Пральна ${machine} тимчасово деактивована або перебуває на обслуговуванні.`);
+        });
+      } else {
+        const found = bookings.find(
+          (b) => b.time_slot === slot && b.machine_id === machine
+        );
+
+        if (found) {
+          if (found.user_id === myId) {
+            cell.className = 'slot mine';
+            cell.textContent = 'Моє (Відмінити)';
+            cell.addEventListener('click', () => {
+              showConfirm(`Відмінити бронювання Пралки ${machine} на час ${slot}?`, () => {
+                handleCancel(slot, machine);
+              });
+            });
+          } else {
+            cell.className = 'slot booked';
+            cell.textContent = 'Зайнято';
+          }
+        } else {
+          cell.className = 'slot free';
+          cell.textContent = 'Вільна';
           cell.addEventListener('click', () => {
-            showConfirm(`Відмінити бронювання Пралки ${machine} на час ${slot}?`, () => {
-              handleCancel(slot, machine);
+            showConfirm(`Забронювати Пралку ${machine} на час ${slot}?`, () => {
+              handleBooking(slot, machine);
             });
           });
-        } else {
-          cell.className = 'slot booked';
-          cell.textContent = 'Зайнято';
         }
-      } else {
-        cell.textContent = 'Вільна';
-        cell.addEventListener('click', () => {
-          showConfirm(`Забронювати Пралку ${machine} на час ${slot}?`, () => {
-            handleBooking(slot, machine);
-          });
-        });
       }
 
       row.appendChild(cell);
@@ -242,7 +253,7 @@ async function loadState(skipMaintenanceCheck = false) {
       passLabel.textContent = `Абонемент (${subWashes} прань)`;
     }
 
-    renderGrid(data.bookings, currentUser.id);
+    renderGrid(data.bookings, currentUser.id, data.machines);
   } catch (err) {
     console.error(err);
     showAlert('Помилка з\'єднання з сервером');
